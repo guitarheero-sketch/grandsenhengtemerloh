@@ -60,14 +60,43 @@
       padding: 8px 4px 2px;
     }
     .brand-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
-    .brand-dot {
-      width: 42px; height: 42px; border-radius: 16px;
-      background: linear-gradient(135deg, var(--red), #ff445f);
-      display: grid; place-items: center;
-      color: #fff; font-weight: 900; letter-spacing: -.04em;
-      box-shadow: 0 12px 24px rgba(200,16,46,.32);
+    .brand-logo {
+      width: 116px;
+      height: 42px;
+      border-radius: 14px;
+      background: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 7px 10px;
+      box-shadow: 0 12px 24px rgba(0,0,0,.18);
+      border: 1px solid rgba(255,255,255,.22);
       flex: 0 0 auto;
+      overflow: hidden;
     }
+    .brand-logo img {
+      width: 100%;
+      max-height: 26px;
+      object-fit: contain;
+      display: block;
+    }
+    .brand-logo img.fallback-icon {
+      width: 30px;
+      height: 30px;
+      max-height: 30px;
+      object-fit: contain;
+    }
+    .logo-fallback-word {
+      display: none;
+      color: #ed1b2f;
+      font-size: 1.08rem;
+      font-weight: 900;
+      letter-spacing: -.065em;
+      transform: skewX(-7deg);
+      line-height: 1;
+    }
+    .brand-logo.logo-failed img { display: none; }
+    .brand-logo.logo-failed .logo-fallback-word { display: block; }
     .brand-title strong { display: block; font-size: .9rem; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .brand-title span { display: block; font-size: .72rem; color: rgba(255,255,255,.68); margin-top: 2px; }
     .mini-pill {
@@ -378,7 +407,7 @@
   <main class="app">
     <header class="brandbar" aria-label="Grand Senheng Temerloh Review Helper">
       <div class="brand-title">
-        <div class="brand-dot">SH</div>
+        <div class="brand-logo"><img src="https://logo.clearbit.com/senheng.com.my" alt="SENHENG logo" referrerpolicy="no-referrer" onerror="this.closest('.brand-logo').classList.add('logo-failed')"><span class="logo-fallback-word" aria-hidden="true">SENHENG</span></div>
         <div>
           <strong>Grand Senheng Temerloh</strong>
           <span>Google Review · S-Coin</span>
@@ -571,6 +600,8 @@
     let mode = "earn";
     let selectedTemplate = "";
     let lastRenderedTemplates = [];
+    let lastTemplateSignature = "";
+    let copyBusy = false;
 
     const $ = (id) => document.getElementById(id);
     const pages = [...document.querySelectorAll('.page')];
@@ -594,13 +625,22 @@
 
     function goStep(n) {
       step = Math.max(1, Math.min(5, n));
+      copyBusy = false;
+      resetActionButtons();
       pages.forEach(p => p.classList.toggle('active', Number(p.dataset.step) === step));
       bars.forEach((bar, idx) => bar.classList.toggle('done', idx < step));
-      updateFooter();
       if (step === 3) syncFormMode();
-      if (step === 4) { loadTemplates(); }
+      if (step === 4) { prepareTemplateStep(); }
       if (step === 5) { renderFinal(); }
+      updateFooter();
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function resetActionButtons() {
+      const next = $('nextBtn');
+      const pairNext = $('pairNextBtn');
+      if (next) next.disabled = false;
+      if (pairNext) pairNext.disabled = false;
     }
 
     function updateFooter() {
@@ -608,6 +648,8 @@
       const pair = $('footerPair');
       const next = $('nextBtn');
       const pairNext = $('pairNextBtn');
+
+      if (!copyBusy) resetActionButtons();
 
       if (step === 1) {
         single.style.display = 'grid'; pair.style.display = 'none';
@@ -646,6 +688,7 @@
       $('earnMode').classList.toggle('active', mode === 'earn');
       $('redeemMode').classList.toggle('active', mode === 'redeem');
       selectedTemplate = '';
+      lastTemplateSignature = '';
       $('reviewEdit').value = '';
       setTimeout(() => goStep(3), 120);
     }
@@ -668,7 +711,11 @@
 
     ['earnItem', 'earnPrice', 'earnPercent', 'redeemItem', 'redeemPoints'].forEach(id => {
       const el = $(id);
-      if (el) el.addEventListener('input', () => { showError('errForm', false); calcImpact(); });
+      if (el) el.addEventListener('input', () => {
+        showError('errForm', false);
+        lastTemplateSignature = '';
+        calcImpact();
+      });
     });
 
     function numberFromText(value) {
@@ -759,6 +806,20 @@
       return copy.slice(0, n);
     }
 
+    function dataSignature() {
+      return JSON.stringify({ mode, data: currentData() });
+    }
+
+    function prepareTemplateStep() {
+      const signature = dataSignature();
+      if (signature !== lastTemplateSignature) {
+        selectedTemplate = '';
+        $('reviewEdit').value = '';
+        lastTemplateSignature = signature;
+      }
+      loadTemplates();
+    }
+
     function loadTemplates() {
       const list = $('templateList');
       list.innerHTML = '';
@@ -823,9 +884,21 @@ ${tags}`;
       return ok;
     }
 
+    function restoreAfterExternalReturn() {
+      copyBusy = false;
+      resetActionButtons();
+      updateFooter();
+      if (step === 5) {
+        $('copyStatus').classList.remove('show');
+        $('manualPanel').classList.remove('show');
+        $('pairNextBtn').textContent = 'Copy & buka Google Review';
+      }
+    }
+
     async function copyAndOpenGoogle() {
       const text = buildReview();
       const btn = $('pairNextBtn');
+      copyBusy = true;
       btn.disabled = true;
       btn.textContent = 'Copying...';
       try {
@@ -833,15 +906,25 @@ ${tags}`;
         $('copyStatus').classList.add('show');
         if (navigator.vibrate) navigator.vibrate(35);
         btn.textContent = 'Google Review dibuka...';
-        setTimeout(() => { window.location.href = GOOGLE_REVIEW_URL; }, 280);
+        setTimeout(() => {
+          window.location.assign(GOOGLE_REVIEW_URL);
+          setTimeout(restoreAfterExternalReturn, 1200);
+        }, 280);
       } catch (err) {
         console.warn(err);
         $('manualPanel').classList.add('show');
-        btn.disabled = false;
         btn.textContent = 'Buka Google Review';
-        setTimeout(() => { window.location.href = GOOGLE_REVIEW_URL; }, 700);
+        setTimeout(() => {
+          window.location.assign(GOOGLE_REVIEW_URL);
+          setTimeout(restoreAfterExternalReturn, 1200);
+        }, 700);
       }
     }
+
+    window.addEventListener('pageshow', restoreAfterExternalReturn);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') restoreAfterExternalReturn();
+    });
 
     window.addEventListener('load', () => {
       $('earnPercent').value = 50;
